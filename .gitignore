@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Analysis outputs
+results/*
+!results/.gitkeep
+data/*
+!data/.gitkeep
+
+# System files
+.DS_Store
+Thumbs.db
