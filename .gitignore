@@ -13,8 +13,10 @@ venv/
 # Analysis outputs
 results/*
 !results/.gitkeep
+!results/README.md
 data/*
 !data/.gitkeep
+!data/README.md
 
 # System files
 .DS_Store
