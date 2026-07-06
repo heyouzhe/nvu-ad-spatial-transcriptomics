@@ -58,7 +58,6 @@ if DEVICE.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB")
 
-CTX_EXCLUDE    = set()
 CELLTYPE_ORDER = ['Neuron','Astro','Micro','Endo','Pericyte','Oligo','OPC']
 REGION_MAP     = {
     'CA1':0,'CA2':1,'CA3':2,'CA4':3,'DG':4,'FAS':5,'SLRM':6,
@@ -376,8 +375,7 @@ def generate_all_results(gene_map_hip, gene_map_ctx,
                           n_jobs=36):
     hip_files = [f for f in sorted(Path(HIP_DIR).glob('*.h5ad'))
                  if 'Untitled' not in f.name]
-    ctx_files = [f for f in sorted(Path(CTX_DIR).glob('*.h5ad'))
-                 if not any(e in f.name for e in CTX_EXCLUDE)]
+    ctx_files = [f for f in sorted(Path(CTX_DIR).glob('*.h5ad'))]
 
     tasks = (
         [(f, 'hip', gene_map_hip, SCALAR_NAMES_HIP,
@@ -985,40 +983,6 @@ def save_prediction_tables_with_metadata(plot_dir=PLOT_DIR,
             outputs[f'{kind}_{tissue}'] = str(out_path)
             print(f"Metadata-merged table saved: {out_path}")
     return outputs
-
-
-def filter_all_results(all_results, exclude_sample_ids=None,
-                       include_tissues=None, min_nvu=None, max_nvu=None):
-    """Filter samples according to QC rules for full-cohort and QC-filtered cohort reporting."""
-    exclude_sample_ids = set(exclude_sample_ids or [])
-    include_tissues = set(include_tissues) if include_tissues else None
-    kept, removed = [], []
-    for r in all_results:
-        reason = None
-        if r['sample_id'] in exclude_sample_ids:
-            reason = 'manual_exclude'
-        elif include_tissues is not None and r['tissue'] not in include_tissues:
-            reason = 'tissue_exclude'
-        elif min_nvu is not None and r['n_nvu'] < min_nvu:
-            reason = f'n_nvu<{min_nvu}'
-        elif max_nvu is not None and r['n_nvu'] > max_nvu:
-            reason = f'n_nvu>{max_nvu}'
-
-        if reason is None:
-            kept.append(r)
-        else:
-            removed.append({
-                'sample_id': r['sample_id'],
-                'tissue': r['tissue'],
-                'label': r['label'],
-                'n_nvu': r['n_nvu'],
-                'reason': reason,
-            })
-    removed_df = pd.DataFrame(removed)
-    print(f"QC filtering: kept={len(kept)}, excluded={len(removed)}")
-    if len(removed_df):
-        print(removed_df)
-    return kept, removed_df
 
 
 def build_sample_feature_table(all_results, top_genes_by_tissue=None,
@@ -3170,7 +3134,6 @@ if __name__ == '__main__':
     lr_ctx = pd.read_csv(
         GNN_DIR / 'Cortex_all_Stereosite.csv'
     )
-    lr_ctx = lr_ctx[~lr_ctx['sample'].isin(CTX_EXCLUDE)].copy()
 
     print("Hippocampus LR:")
     TOP_LR_HIP = select_top_lr_pairs(lr_hip)
