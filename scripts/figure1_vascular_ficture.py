@@ -1,10 +1,10 @@
 """
 ============================================================
-Ficture血管反卷积 - 内皮中心版 (简化版)
+FICTURE vascular deconvolution - endothelial-centered version (simplified)
 ============================================================
-核心理念：内皮细胞是血管的本质特征，周细胞和SMC是支持/成熟标志
+Core idea: endothelial cells define the vascular signal; pericytes and SMCs mark support and maturation
 
-评分公式: vascular_score = endo_weight * endo + support_weight * support * endo
+Scoring formula: vascular_score = endo_weight * endo + support_weight * support * endo
 ============================================================
 """
 
@@ -52,7 +52,7 @@ except ImportError:
 
 
 # ============================================================
-# 默认血管参考表达谱
+# Default vascular reference expression profiles
 # ============================================================
 DEFAULT_VASCULAR_REFERENCE = {
     "Endothelial": {
@@ -73,11 +73,11 @@ DEFAULT_VASCULAR_REFERENCE = {
 
 
 # ============================================================
-# Numba加速函数
+# Numba-accelerated functions
 # ============================================================
 @njit(cache=True)
 def _fast_hexagon_assign(x, y, hex_centers_x, hex_centers_y, hex_radius):
-    """快速六边形分配"""
+    """Fast hexagon assignment."""
     n_points = len(x)
     n_hex = len(hex_centers_x)
     assignments = np.full(n_points, -1, dtype=np.int32)
@@ -98,7 +98,7 @@ def _fast_hexagon_assign(x, y, hex_centers_x, hex_centers_y, hex_radius):
 
 @njit(cache=True)
 def _fast_aggregate(assignments, gene_indices, counts, n_hex, n_genes):
-    """快速聚合到六边形"""
+    """Fast aggregation to hexagons."""
     result = np.zeros((n_hex, n_genes), dtype=np.float64)
     hex_counts = np.zeros(n_hex, dtype=np.float64)
     
@@ -112,10 +112,10 @@ def _fast_aggregate(assignments, gene_indices, counts, n_hex, n_genes):
 
 
 # ============================================================
-# 变分推断LDA
+# Variational-inference LDA
 # ============================================================
 class VariationalLDA:
-    """基于变分推断的LDA模型"""
+    """Variational-inference LDA model."""
     
     def __init__(self, n_topics, alpha=None, eta=None, 
                  learning_rate=0.7, batch_size=512,
@@ -202,7 +202,7 @@ class VariationalLDA:
                 print(f"  Iteration {iteration + 1}: avg_change = {avg_change:.6f}")
             if avg_change < self.tol:
                 if verbose:
-                    print(f"  收敛于 iteration {iteration + 1}")
+                    print(f"  Converged at iteration {iteration + 1}")
                 break
         
         return self
@@ -216,7 +216,7 @@ class VariationalLDA:
 
 
 # ============================================================
-# 像素级解码器
+# Pixel-level decoder
 # ============================================================
 class PixelLevelDecoder:
     def __init__(self, anchor_resolution=10, neighbor_radius=30,
@@ -242,14 +242,14 @@ class PixelLevelDecoder:
 
 
 # ============================================================
-# 数据读取模块
+# Data loading utilities
 # ============================================================
 class SpatialDataReader:
-    """空间转录组数据读取器"""
+    """Spatial transcriptomics data reader."""
     
     @staticmethod
     def detect_format(file_path):
-        """自动检测文件格式"""
+        """Automatically detect the file format."""
         file_path_lower = file_path.lower()
         if file_path_lower.endswith('.gef'):
             return 'gef'
@@ -271,12 +271,12 @@ class SpatialDataReader:
     
     @staticmethod
     def read_gef(gef_path, verbose=True):
-        """读取GEF格式"""
+        """Read GEF format."""
         if not HAS_H5PY:
-            raise ImportError("需要安装 h5py: pip install h5py")
+            raise ImportError("h5py is required: pip install h5py")
         
         if verbose:
-            print(f"📖 读取GEF: {gef_path}")
+            print(f"📖 Reading GEF: {gef_path}")
         
         with h5py.File(gef_path, 'r') as f:
             grp = f['geneExp/bin1']
@@ -304,15 +304,15 @@ class SpatialDataReader:
                     gene_indices[offset:offset+cnt] = i
         
         if verbose:
-            print(f"   记录数: {len(x)}, 基因数: {len(gene_names)}")
+            print(f"   records: {len(x)}, genes: {len(gene_names)}")
         
         return x, y, count, gene_indices, gene_names
     
     @staticmethod
     def read_gem_gz(gem_path, verbose=True):
-        """读取GEMGEM.gz format"""
+        """Read GEM/GEM.gz format."""
         if verbose:
-            print(f"📖 读取GEM: {gem_path}")
+            print(f"📖 Reading GEM: {gem_path}")
         
         if gem_path.endswith('.gz'):
             open_func = gzip.open
@@ -329,17 +329,17 @@ class SpatialDataReader:
                     break
         
         if header_line is None:
-            raise ValueError("无法找到GEM文件的表头")
+            raise ValueError("Could not find the GEM file header")
         
         columns = header_line.split('\t')
         if verbose:
-            print(f"   列名: {columns}")
+            print(f"   columns: {columns}")
         
         df = pd.read_csv(gem_path, sep='\t', comment='#', 
                          compression='gzip' if gem_path.endswith('.gz') else None)
         
         if verbose:
-            print(f"   原始行数: {len(df)}")
+            print(f"   raw rows: {len(df)}")
         
         gene_col = x_col = y_col = count_col = None
         
@@ -355,7 +355,7 @@ class SpatialDataReader:
                 count_col = col
         
         if gene_col is None or x_col is None or y_col is None or count_col is None:
-            raise ValueError(f"无法识别GEM列名。找到的列: {list(df.columns)}")
+            raise ValueError(f"Could not recognize GEM column names. Found columns: {list(df.columns)}")
         
         x = df[x_col].values.astype(np.float32)
         y = df[y_col].values.astype(np.float32)
@@ -367,18 +367,18 @@ class SpatialDataReader:
         gene_indices = np.array([gene_to_idx[g] for g in genes], dtype=np.int32)
         
         if verbose:
-            print(f"   记录数: {len(x)}, 基因数: {len(unique_genes)}")
+            print(f"   records: {len(x)}, genes: {len(unique_genes)}")
         
         return x, y, count, gene_indices, unique_genes
     
     @staticmethod
     def read_with_stereopy(file_path, verbose=True):
-        """使用Stereopy读取"""
+        """Read with Stereopy."""
         if not HAS_STEREOPY:
-            raise ImportError("需要安装 stereopy: pip install stereopy")
+            raise ImportError("stereopy is required: pip install stereopy")
         
         if verbose:
-            print(f"📖 使用Stereopy读取: {file_path}")
+            print(f"📖 Reading with Stereopy: {file_path}")
         
         data = st.io.read_gem(file_path)
         
@@ -387,7 +387,7 @@ class SpatialDataReader:
         elif hasattr(data, 'cells') and hasattr(data.cells, 'position'):
             coords = data.cells.position
         else:
-            raise ValueError("无法从Stereopy对象中提取坐标")
+            raise ValueError("Could not extract coordinates from the Stereopy object")
         
         if hasattr(data, 'exp_matrix'):
             exp_matrix = data.exp_matrix
@@ -418,13 +418,13 @@ class SpatialDataReader:
         gene_names = list(data.gene_names)
         
         if verbose:
-            print(f"   转换后记录数: {len(x)}")
+            print(f"   records after conversion: {len(x)}")
         
         return x, y, count, gene_indices, gene_names
     
     @classmethod
     def read(cls, file_path, verbose=True, use_stereopy=False):
-        """自动读取空间转录组数据"""
+        """Automatically load spatial transcriptomics data."""
         if use_stereopy:
             return cls.read_with_stereopy(file_path, verbose)
         
@@ -437,20 +437,20 @@ class SpatialDataReader:
         else:
             if HAS_STEREOPY:
                 if verbose:
-                    print(f"⚠️ 未知格式，尝试使用Stereopy...")
+                    print(f"⚠️ Unknown format; trying Stereopy...")
                 return cls.read_with_stereopy(file_path, verbose)
             else:
-                raise ValueError(f"无法识别文件格式: {file_path}")
+                raise ValueError(f"Could not recognize file format: {file_path}")
 
 
 # ============================================================
-# 主处理类 - 内皮中心版
+# Main processing class - endothelial-centered version
 # ============================================================
 class FictureVascularDeconv:
     """
-    Ficture风格血管因子反卷积 - 内皮中心版
+    FICTURE-style vascular factor deconvolution - endothelial-centered version
     
-    评分公式: vascular_score = endo_weight * endo + support_weight * support * endo
+    Scoring formula: vascular_score = endo_weight * endo + support_weight * support * endo
     """
     
     def __init__(self, 
@@ -465,7 +465,7 @@ class FictureVascularDeconv:
                  include_all_genes=False,
                  min_gene_expression=0,
                  use_stereopy=False,
-                 # 内皮中心评分参数
+                 # Endothelial-centered scoring parameters
                  endo_weight=0.5,
                  support_weight=0.6,
                  n_jobs=-1,
@@ -474,13 +474,13 @@ class FictureVascularDeconv:
         Parameters:
         -----------
         hex_width : float
-            六边形网格宽度（微米）
+            Hexagonal grid width (micrometers)
         min_count : int
-            六边形最小UMI阈值
+            Minimum UMI threshold per hexagon
         endo_weight : float
-            内皮细胞权重 (默认0.7)
+            Endothelial-cell weight (default 0.7)
         support_weight : float
-            支持细胞权重 (默认0.3)
+            Support-cell weight (default 0.3)
         """
         self.hex_width = hex_width
         self.anchor_resolution = anchor_resolution
@@ -508,7 +508,7 @@ class FictureVascularDeconv:
             print(msg)
     
     def _build_prior_matrix(self, gene_list):
-        """构建LDA先验矩阵"""
+        """Build the LDA prior matrix."""
         self.factor_names = list(self.reference_profiles.keys())
         n_factors = len(self.factor_names)
         n_genes = len(gene_list)
@@ -524,7 +524,7 @@ class FictureVascularDeconv:
         return eta
     
     def _read_data(self, file_path):
-        """读取数据"""
+        """Load data."""
         return SpatialDataReader.read(
             file_path, 
             verbose=self.verbose, 
@@ -532,9 +532,9 @@ class FictureVascularDeconv:
         )
     
     def _filter_genes(self, gene_names, gene_indices, counts):
-        """过滤基因"""
+        """Filter genes."""
         if self.include_all_genes:
-            self._log(f"📌 使用所有基因: {len(gene_names)}")
+            self._log(f"📌 Using all genes: {len(gene_names)}")
             mask = counts >= self.min_gene_expression
             return mask, gene_indices[mask], gene_names
         
@@ -549,11 +549,11 @@ class FictureVascularDeconv:
                 gene_mapping[i] = len(available_genes)
                 available_genes.append(g)
         
-        self._log(f"📌 目标基因: {len(available_genes)}/{len(target_genes)}")
+        self._log(f"📌 target genes: {len(available_genes)}/{len(target_genes)}")
         if len(available_genes) < len(target_genes):
             missing = target_genes - set(available_genes)
             if self.verbose and len(missing) <= 10:
-                self._log(f"   缺失基因: {missing}")
+                self._log(f"   missing genes: {missing}")
         
         mask = np.array([gene_indices[i] in gene_mapping for i in range(len(gene_indices))])
         new_gene_indices = np.array([gene_mapping[gene_indices[i]] 
@@ -563,27 +563,27 @@ class FictureVascularDeconv:
     
     def _calc_vascular_score(self, factor_props):
         """
-        计算内皮中心血管分数
+        Compute the endothelial-centered vascular score.
         
-        公式: vascular_score = endo_weight * endo + support_weight * support * endo
+        Formula: vascular_score = endo_weight * endo + support_weight * support * endo
         
-        设计理念：
-        - 内皮细胞是血管的本质特征
-        - 没有内皮就不是真正的血管 (support * endo 确保这一点)
-        - 周细胞和SMC是血管成熟度标志，起加成作用
+        Design rationale:
+        - Endothelial cells define the vascular identity
+        - A vessel-like signal requires endothelial evidence; support * endo enforces this constraint
+        - Pericytes and SMCs mark vascular maturation and add supporting evidence
         """
-        # 获取各因子索引
+        # Get factor indices
         endo_idx = self.factor_names.index("Endothelial") if "Endothelial" in self.factor_names else None
         peri_idx = self.factor_names.index("Pericyte") if "Pericyte" in self.factor_names else None
         smc_idx = self.factor_names.index("SMC") if "SMC" in self.factor_names else None
         
         if endo_idx is None:
-            # self._log("⚠️ 警告: 缺少Endothelial因子，使用均值作为血管分数")
+            # self._log("⚠️ Warning: Endothelial factor is missing; using the mean as the vascular score")
             return factor_props.mean(axis=1)
         
         endo = factor_props[:, endo_idx]
         
-        # 计算支持细胞分数
+        # Compute the support-cell score
         support_scores = []
         if peri_idx is not None:
             support_scores.append(factor_props[:, peri_idx])
@@ -595,36 +595,36 @@ class FictureVascularDeconv:
         else:
             support = np.zeros_like(endo)
         
-        # 内皮中心公式: support * endo 确保没有内皮时分数为0
+        # Endothelial-centered formula: support * endo keeps the score at 0 without endothelial signal
         vascular_score = self.endo_weight * endo + self.support_weight * support * endo
         
         return vascular_score
     
     def process(self, file_path, output_dir=None):
         """
-        主处理流程
+        Main processing workflow
         
         Returns:
         --------
         results : pd.DataFrame
-            六边形级结果
+            Hexagon-level results
         pixel_results : pd.DataFrame or None
-            像素级结果
+            Pixel-level results
         """
         self._log("=" * 60)
-        self._log("🩸 Ficture血管因子反卷积 - 内皮中心版")
+        self._log("🩸 FICTURE vascular factor deconvolution - endothelial-centered version")
         self._log("=" * 60)
-        self._log(f"⚙️  参数设置:")
+        self._log(f"⚙️  Parameters:")
         self._log(f"   hex_width = {self.hex_width}μm")
         self._log(f"   min_count = {self.min_count}")
         self._log(f"   endo_weight = {self.endo_weight}")
         self._log(f"   support_weight = {self.support_weight}")
         self._log(f"   include_all_genes = {self.include_all_genes}")
         
-        # 1. 读取数据
+        # 1. Load data
         x, y, count, gene_indices, gene_names = self._read_data(file_path)
         
-        # 2. 过滤基因
+        # 2. Filter genes
         mask, filtered_gene_idx, self.gene_list = self._filter_genes(
             gene_names, gene_indices, count
         )
@@ -633,10 +633,10 @@ class FictureVascularDeconv:
         y_filtered = y[mask]
         count_filtered = count[mask]
         
-        self._log(f"   过滤后记录数: {len(x_filtered)} ({len(x_filtered)/len(x)*100:.2f}%)")
+        self._log(f"   records after filtering: {len(x_filtered)} ({len(x_filtered)/len(x)*100:.2f}%)")
         
-        # 3. 创建六边形网格
-        self._log(f"\n📐 六边形网格 (width={self.hex_width}μm)")
+        # 3. Create the hexagonal grid
+        self._log(f"\n📐 Hexagonal grid (width={self.hex_width}μm)")
         
         x_min, x_max = x_filtered.min(), x_filtered.max()
         y_min, y_max = y_filtered.min(), y_filtered.max()
@@ -659,9 +659,9 @@ class FictureVascularDeconv:
             row += 1
         
         hex_centers = np.array(hex_centers)
-        self._log(f"   六边形总数: {len(hex_centers)}")
+        self._log(f"   total hexagons: {len(hex_centers)}")
         
-        # 4. 分配和聚合
+        # 4. Assign and aggregate
         if HAS_NUMBA:
             assignments = _fast_hexagon_assign(
                 x_filtered, y_filtered,
@@ -687,17 +687,17 @@ class FictureVascularDeconv:
                     hex_matrix[a, g] += c
                     hex_counts[a] += c
         
-        # 过滤低表达六边形
+        # Filter low-expression hexagons
         valid_hex = hex_counts >= self.min_count
         n_valid = valid_hex.sum()
-        self._log(f"   有效六边形: {n_valid} ({n_valid/len(hex_centers)*100:.1f}%)")
+        self._log(f"   valid hexagons: {n_valid} ({n_valid/len(hex_centers)*100:.1f}%)")
         
         if n_valid < 100:
-            self._log(f"\n⚠️  警告: 有效六边形过少 ({n_valid})!")
-            self._log(f"   建议: 降低 min_count 或增大 hex_width")
+            self._log(f"\n⚠️  Warning: too few valid hexagons ({n_valid})!")
+            self._log(f"   Suggestion: lower min_count or increase hex_width")
         
-        # 5. LDA因子学习
-        self._log(f"\n🧬 LDA因子学习")
+        # 5. Learn LDA factors
+        self._log(f"\n🧬 LDA factor learning")
         
         eta = self._build_prior_matrix(self.gene_list)
         
@@ -723,14 +723,14 @@ class FictureVascularDeconv:
         
         self.lda_model.fit(valid_matrix, verbose=self.verbose)
         
-        # 推断因子
+        # Infer factors
         factor_props = self.lda_model.transform(valid_matrix)
         
-        # 6. 计算血管分数 (内皮中心法)
-        self._log(f"\n🔬 计算血管分数 (内皮中心法)")
+        # 6. Compute vascular scores (endothelial-centered)
+        self._log(f"\n🔬 Computing vascular scores (endothelial-centered)")
         vascular_score = self._calc_vascular_score(factor_props)
         
-        # 7. 构建结果
+        # 7. Build results
         valid_indices = np.where(valid_hex)[0]
         results = pd.DataFrame({
             'hex_id': valid_indices,
@@ -739,14 +739,14 @@ class FictureVascularDeconv:
             'total_count': hex_counts[valid_hex]
         })
         
-        # 各因子分数
+        # Per-factor scores
         for i, factor in enumerate(self.factor_names):
             results[f'{factor}_score'] = factor_props[:, i]
         
-        # 血管综合分数
+        # Composite vascular score
         results['Vascular_score'] = vascular_score
         
-        # 归一化各分数到0-1
+        # Normalize scores to 0-1
         score_cols = [c for c in results.columns if '_score' in c]
         for col in score_cols:
             min_v, max_v = results[col].min(), results[col].max()
@@ -755,32 +755,32 @@ class FictureVascularDeconv:
             else:
                 results[f'{col}_norm'] = 0.0
         
-        # 8. 像素级解码
+        # 8. Pixel-level decoding
         pixel_results = None
         if self.pixel_level:
-            self._log(f"\n🔬 像素级解码")
+            self._log(f"\n🔬 Pixel-level decoding.")
             pixel_results = self._pixel_decode(
                 x_filtered, y_filtered, filtered_gene_idx, count_filtered,
                 hex_centers[valid_indices], factor_props
             )
         
-        # 9. 保存结果
+        # 9. Save results
         if output_dir:
             self._save_results(results, pixel_results, output_dir)
         
-        # 10. 打印统计
-        self._log(f"\n📊 统计摘要:")
-        self._log(f"   总六边形数: {len(results)}")
-        self._log(f"   血管分数均值: {results['Vascular_score'].mean():.4f}")
-        self._log(f"   血管分数中位数: {results['Vascular_score'].median():.4f}")
-        self._log(f"   血管分数标准差: {results['Vascular_score'].std():.4f}")
+        # 10. Print summary statistics
+        self._log(f"\n📊 Summary statistics:")
+        self._log(f"   Total hexagons: {len(results)}")
+        self._log(f"   Mean vascular score: {results['Vascular_score'].mean():.4f}")
+        self._log(f"   Median vascular score: {results['Vascular_score'].median():.4f}")
+        self._log(f"   Vascular-score standard deviation: {results['Vascular_score'].std():.4f}")
         
         self._log("\nDone.")
         
         return results, pixel_results
     
     def _pixel_decode(self, x, y, gene_idx, counts, anchor_coords, anchor_factors):
-        """像素级解码"""
+        """Pixel-level decoding."""
         self.pixel_decoder = PixelLevelDecoder(
             anchor_resolution=self.anchor_resolution,
             neighbor_radius=self.hex_width,
@@ -802,39 +802,39 @@ class FictureVascularDeconv:
         for i, factor in enumerate(self.factor_names):
             results[f'{factor}_score'] = pixel_factors[:, i]
         
-        # 计算像素级血管分数
+        # Compute the pixel-level vascular score
         vascular_score = self._calc_vascular_score(pixel_factors)
         results['Vascular_score'] = vascular_score
         
         return results
     
     def _save_results(self, results, pixel_results, output_dir):
-        """保存结果"""
+        """Save results."""
         os.makedirs(output_dir, exist_ok=True)
         
-        # 保存六边形结果
+        # Save hexagon-level results
         csv_path = os.path.join(output_dir, f'hex_vascular_{self.hex_width}um.csv')
         results.to_csv(csv_path, index=False)
-        self._log(f"💾 保存: {csv_path}")
+        self._log(f"💾 Saved: {csv_path}")
         
-        # 保存像素级结果
+        # Save pixel-level results
         if pixel_results is not None:
             pixel_path = os.path.join(output_dir, 'pixel_vascular.csv.gz')
             pixel_results.to_csv(pixel_path, index=False, compression='gzip')
-            self._log(f"💾 保存: {pixel_path}")
+            self._log(f"💾 Saved: {pixel_path}")
         
-        # 绘图
+        # Plot results
         self._plot_results(results, output_dir)
     
     def _plot_results(self, results, output_dir):
-        """绘制结果图"""
+        """Plot result figures."""
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            self._log("⚠️ 无法导入matplotlib，跳过绘图")
+            self._log("⚠️ Could not import matplotlib; skipping plots")
             return
         
-        # 各因子分数
+        # Per-factor scores
         score_cols = [c for c in results.columns if '_score' in c and '_norm' not in c]
         n_cols = min(3, len(score_cols))
         n_rows = (len(score_cols) + n_cols - 1) // n_cols
@@ -872,24 +872,24 @@ class FictureVascularDeconv:
         plot_path = os.path.join(output_dir, 'vascular_factors.png')
         plt.savefig(plot_path, dpi=200, facecolor='black', bbox_inches='tight')
         plt.close()
-        self._log(f"💾 图片: {plot_path}")
+        self._log(f"💾 Figure: {plot_path}")
 
 
 # ============================================================
-# 便捷接口
+# Convenience interface
 # ============================================================
 def run_vascular_deconv(file_path, output_dir=None, **kwargs):
     """
-    运行血管因子反卷积
+    Run vascular factor deconvolution.
     
     Parameters:
     -----------
     file_path : str
-        输入文件路径
+        Input file path
     output_dir : str
-        输出目录
+        Output directory
     **kwargs : 
-        其他参数传递给 FictureVascularDeconv
+        Additional parameters passed to FictureVascularDeconv
         
     Returns:
     --------
@@ -900,39 +900,39 @@ def run_vascular_deconv(file_path, output_dir=None, **kwargs):
 
 
 # ============================================================
-# 使用示例
+# Usage examples
 # ============================================================
 if __name__ == "__main__":
     print("""
 ╔══════════════════════════════════════════════════════════════════╗
-║       Ficture血管因子反卷积 - 内皮中心版 (简化版)                    ║
+║       FICTURE vascular factor deconvolution - endothelial-centered version (simplified)               ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                   ║
-║  评分公式:                                                         ║
+║  Scoring formula:                                                         ║
 ║    vascular_score = endo_weight * endo + support_weight * support * endo
 ║                                                                   ║
-║  设计理念:                                                         ║
-║    - 内皮细胞是血管的本质特征                                        ║
-║    - 没有内皮就不是真正的血管 (support * endo 确保这一点)             ║
-║    - 周细胞和SMC是血管成熟度标志，起加成作用                          ║
+║  Design rationale:                                                  ║
+║    - Endothelial cells define the vascular identity                                        ║
+║    - A vessel-like signal requires endothelial evidence; support * endo enforces this constraint             ║
+║    - Pericytes and SMCs mark vascular maturation and add supporting evidence                          ║
 ║                                                                   ║
-║  使用示例:                                                         ║
+║  Usage examples:                                                         ║
 ║                                                                   ║
-║    # 基本用法                                                      ║
+║    # Basic usage                                                      ║
 ║    processor = FictureVascularDeconv(                             ║
 ║        hex_width=50,                                              ║
 ║        min_count=1                                                ║
 ║    )                                                              ║
 ║    results, _ = processor.process('tissue.gef', 'output/')       ║
 ║                                                                   ║
-║    # 自定义权重                                                    ║
+║    # Custom weights                                                    ║
 ║    processor = FictureVascularDeconv(                             ║
 ║        hex_width=50,                                              ║
-║        endo_weight=0.8,    # 增加内皮权重                           ║
-║        support_weight=0.2  # 减少支持细胞权重                        ║
+║        endo_weight=0.8,    # Increase endothelial weight                           ║
+║        support_weight=0.2  # Decrease support-cell weight                        ║
 ║    )                                                              ║
 ║                                                                   ║
-║    # 便捷接口                                                      ║
+║    # Convenience interface                                                      ║
 ║    results, _ = run_vascular_deconv(                              ║
 ║        'tissue.gef',                                              ║
 ║        output_dir='output/',                                      ║

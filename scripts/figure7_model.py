@@ -1,11 +1,11 @@
 """
-NVU Two-Level GNN 完整训练代码
+Complete NVU two-level GNN training workflow
 Project: NVU AD spatial transcriptomics
-功能: 海马+皮层 AD/Control 分类，含NVU级辅助损失
+Purpose: hippocampus and cortex AD/Control classification with an auxiliary NVU-level loss
 """
 
 # ══════════════════════════════════════════════════════════════
-# 0. Imports & 全局配置
+# 0. Imports & global configuration
 # ══════════════════════════════════════════════════════════════
 import os
 import gc
@@ -53,10 +53,10 @@ GNN_DIR.mkdir(parents=True, exist_ok=True)
 PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用设备: {DEVICE}")
+print(f"Using device: {DEVICE}")
 if DEVICE.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name(0)}")
-    print(f"显存: {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB")
+    print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB")
 
 CTX_EXCLUDE    = set()
 CELLTYPE_ORDER = ['Neuron','Astro','Micro','Endo','Pericyte','Oligo','OPC']
@@ -75,8 +75,8 @@ REGION_FOCUS_ORDER = ['FAS', 'SLRM', 'CA1', 'CA2', 'CA3', 'CA4',
 
 def set_publication_plot_style():
     """
-    让matplotlib导出的PDF/SVG更适合AI/Illustrator/Inkscape编辑。
-    注意：需要在画图前调用；旧PDF需要重新生成。
+    Configure matplotlib PDF/SVG export for downstream editing in Illustrator or Inkscape.
+    Call this before plotting; previously generated PDFs need to be regenerated.
     """
     import matplotlib as mpl
     mpl.rcParams['pdf.fonttype'] = 42
@@ -87,21 +87,21 @@ def set_publication_plot_style():
 
 
 def save_publication_figure(fig, path_no_ext, dpi=300):
-    """同时保存PDF和SVG；SVG通常最适合后期编辑文字。"""
+    """Save both PDF and SVG; SVG is usually best for post-hoc text editing."""
     set_publication_plot_style()
     fig.savefig(f'{path_no_ext}.pdf', dpi=dpi, bbox_inches='tight')
     fig.savefig(f'{path_no_ext}.svg', bbox_inches='tight')
-    print(f"保存: {path_no_ext}.pdf")
-    print(f"保存: {path_no_ext}.svg")
+    print(f"Saved: {path_no_ext}.pdf")
+    print(f"Saved: {path_no_ext}.svg")
 
 # ══════════════════════════════════════════════════════════════
-# 1. 基因-模块映射
+# 1. Gene-module mapping
 # ══════════════════════════════════════════════════════════════
 def build_gene_module_map(hip_df, ctx_df, ab_df, tissue):
     """
-    三类标签：
-      wgcna    : hdWGCNA非grey模块基因（含与Aβ重叠的，统一用WGCNA标签）
-      abeta_only: shared Aβ基因中不在WGCNA的部分 → 'Abeta_shared'
+    Three label classes:
+      wgcna    : hdWGCNA non-grey module genes, including genes overlapping with Aβ, assigned to WGCNA labels
+      abeta_only: shared Aβ genes that are not in WGCNA → 'Abeta_shared'
     """
     mod_df    = hip_df if tissue == 'hip' else ctx_df
     nongrey   = mod_df[mod_df['module'] != 'grey'].copy()
@@ -125,13 +125,13 @@ def build_gene_module_map(hip_df, ctx_df, ab_df, tissue):
             'label':     'Abeta_shared',
         })
     result = pd.DataFrame(records)
-    print(f"[{tissue}] 标签数={result['label'].nunique()}, "
-          f"基因数={len(result)}")
+    print(f"[{tissue}] labels={result['label'].nunique()}, "
+          f"genes={len(result)}")
     return result
 
 
 def get_full_scalar_names(gene_map_df, celltype_order, lr_names):
-    """完整标量特征名：模块表达 + LR强度 + 细胞组成 + dist + n_cells"""
+    """Full scalar feature names: module expression, LR intensity, cell composition, dist, and n_cells."""
     names = []
     for lbl in gene_map_df['label'].unique():
         names.append(f'{lbl}__all')
@@ -145,7 +145,7 @@ def get_full_scalar_names(gene_map_df, celltype_order, lr_names):
 
 
 # ══════════════════════════════════════════════════════════════
-# 2. LR特征构建
+# 2. LR feature construction
 # ══════════════════════════════════════════════════════════════
 def select_top_lr_pairs(lr_df, top_n=20, min_samples=3):
     stats = lr_df.groupby('pathway').agg(
@@ -172,7 +172,7 @@ def build_lr_feature_matrix(lr_df, top_pairs):
 
 
 # ══════════════════════════════════════════════════════════════
-# 3. NVU标量特征计算（向量化）
+# 3. Vectorized NVU scalar feature computation
 # ══════════════════════════════════════════════════════════════
 def to_dense(mat):
     if hasattr(mat, 'toarray'):
@@ -186,10 +186,10 @@ def compute_module_scalar_fast(unit, gene_map_df, celltype_order,
                                 all_genes_idx, lr_feat_dict,
                                 lr_names, sample_id, region):
     """
-    NVU标量特征：
-      ① 模块表达（WGCNA模块 × celltype）
-      ② LR强度（区域级）
-      ③ 细胞组成比例
+    NVU scalar features:
+      ① module expression (WGCNA module x cell type)
+      ② LR intensity (region level)
+      ③ cell-composition proportions
       ④ dist_mean, n_cells
     """
     n_cells = len(unit)
@@ -205,7 +205,7 @@ def compute_module_scalar_fast(unit, gene_map_df, celltype_order,
 
     feat_vals = []
 
-    # ① 模块表达
+    # ① module expression
     for lbl, grp in gene_map_df.groupby('label', sort=False):
         col_idx = [all_genes_idx[g] for g in grp['gene_name'].tolist()
                    if g in all_genes_idx]
@@ -223,7 +223,7 @@ def compute_module_scalar_fast(unit, gene_map_df, celltype_order,
             ).mean(axis=1)
         feat_vals.extend(ct_means.tolist())
 
-    # ② LR强度
+    # ② LR intensity
     lr_key = (sample_id, region)
     lr_vec = np.array(
         [lr_feat_dict[lr_key].get(n, 0.0) for n in lr_names]
@@ -233,7 +233,7 @@ def compute_module_scalar_fast(unit, gene_map_df, celltype_order,
     )
     feat_vals.extend(lr_vec.tolist())
 
-    # ③ 细胞组成
+    # ③ cell composition
     for ct_mask in ct_masks.T:
         feat_vals.append(float(ct_mask.mean()))
 
@@ -245,7 +245,7 @@ def compute_module_scalar_fast(unit, gene_map_df, celltype_order,
 
 
 # ══════════════════════════════════════════════════════════════
-# 4. 单文件处理
+# 4. Single-file processing
 # ══════════════════════════════════════════════════════════════
 def process_one_file(fpath, tissue, gene_map, scalar_names,
                      lr_feat_dict, lr_names,
@@ -287,7 +287,7 @@ def process_one_file(fpath, tissue, gene_map, scalar_names,
             n_cells   = len(unit)
             region    = unit.obs['area_m'].mode()[0]
 
-            # 节点特征
+            # Node features
             X_raw = unit.X
             if issparse(X_raw):
                 X_raw = X_raw.toarray()
@@ -302,7 +302,7 @@ def process_one_file(fpath, tissue, gene_map, scalar_names,
 
             dist_val = unit.obs['dist'].values.astype(np.float32).reshape(-1, 1)
 
-            # LR广播
+            # LR broadcast
             lr_key = (sample_id, region)
             lr_vec = np.array(
                 [lr_feat_dict[lr_key].get(n, 0.0) for n in lr_names]
@@ -316,7 +316,7 @@ def process_one_file(fpath, tissue, gene_map, scalar_names,
             )
             x = torch.FloatTensor(node_feat)
 
-            # 边（100µm）
+            # Edges (100 micrometers)
             coords = unit.obs[['x', 'y']].values.astype(float)
             r_px   = 100.0 / pixel_size
             if n_cells > 1:
@@ -388,7 +388,7 @@ def generate_all_results(gene_map_hip, gene_map_ctx,
          for f in ctx_files]
     )
 
-    print(f"总任务={len(tasks)}, 并行={n_jobs}")
+    print(f"Total tasks={len(tasks)}, parallel jobs={n_jobs}")
     results = Parallel(n_jobs=n_jobs, backend='loky', verbose=5)(
         delayed(process_one_file)(f, t, gm, sn, lf, ln, ct)
         for f, t, gm, sn, lf, ln, ct in tasks
@@ -396,24 +396,24 @@ def generate_all_results(gene_map_hip, gene_map_ctx,
     all_results = [r for r in results if r is not None]
     ad_r   = [r for r in all_results if r['label'] == 1]
     ctrl_r = [r for r in all_results if r['label'] == 0]
-    print(f"\n总样本={len(all_results)} (AD={len(ad_r)}, Ctrl={len(ctrl_r)})")
-    print(f"总NVU={sum(r['n_nvu'] for r in all_results)}")
+    print(f"\nTotal samples={len(all_results)} (AD={len(ad_r)}, Ctrl={len(ctrl_r)})")
+    print(f"Total NVUs={sum(r['n_nvu'] for r in all_results)}")
 
     out = f'{GNN_DIR}/all_results_v2.pkl'
     with open(out, 'wb') as fp:
         pickle.dump(all_results, fp)
-    print(f"已保存: {out}")
+    print(f"Saved: {out}")
     return all_results
 
 
 # ══════════════════════════════════════════════════════════════
-# 5. 模型定义
+# 5. Model definitions
 # ══════════════════════════════════════════════════════════════
 class CellGNN(nn.Module):
-    """Layer 1: NVU内细胞图 → NVU表征.
+    """Layer 1: intra-NVU cell graph → NVU representation.
 
-    节点特征前 gene_dim 列是基因表达，后面是 celltype/dist/LR 等协变量。
-    基因表达单独走一个带可学习 gene gate 的分支，避免模型只依赖密度特征。
+    The first gene_dim node-feature columns are gene expression; subsequent columns are celltype, dist, LR, and other covariates.
+    Gene expression is passed through a separate learnable gene-gated branch to reduce reliance on density features alone.
     """
     def __init__(self, node_dim, hidden=128, gene_dim=None):
         super().__init__()
@@ -480,7 +480,7 @@ class CellGNN(nn.Module):
 
 
 class NVUSampleGNN(nn.Module):
-    """Layer 2: NVU图 → 样本分类 + NVU级辅助分类"""
+    """Layer 2: NVU graph → sample classification + auxiliary NVU-level classification"""
     def __init__(self, nvu_gnn_dim, scalar_dim, n_regions=12, hidden=128):
         super().__init__()
         self.proj  = nn.Sequential(
@@ -490,12 +490,12 @@ class NVUSampleGNN(nn.Module):
         self.conv1 = GATConv(hidden, hidden, heads=4, concat=False, dropout=0.1)
         self.conv2 = GATConv(hidden, hidden, heads=1, concat=False)
         self.region_emb = nn.Embedding(n_regions + 1, 16)
-        # 在 NVUSampleGNN.__init__ 里把dropout从0.4改为0.6
+        # Adjust dropout in NVUSampleGNN.__init__ from 0.4 to 0.6
         self.sample_clf = nn.Sequential(
             nn.Linear(hidden * 2 + 16 + 1, 64),
             nn.ReLU(), nn.Dropout(0.6),    # ← 0.4→0.6
             nn.Linear(64, 32),
-            nn.ReLU(), nn.Dropout(0.4),    # ← 加一层
+            nn.ReLU(), nn.Dropout(0.4),    # additional layer
             nn.Linear(32, 1)
         )
         self.nvu_clf = nn.Sequential(
@@ -563,10 +563,10 @@ class TwoLevelGNN(nn.Module):
 
 
 # ══════════════════════════════════════════════════════════════
-# 6. 数据准备（含NVU采样 + 边稀疏化）
+# 6. Data preparation, including NVU sampling and edge sparsification
 # ══════════════════════════════════════════════════════════════
 def build_sparse_graph(data_list, max_edges_per_nvu=200):
-    """边过多时随机采样，防止kernel OOM"""
+    """Randomly sample edges when there are too many, preventing kernel OOM."""
     sparse_list = []
     for g in data_list:
         if g.num_edges > max_edges_per_nvu:
@@ -792,9 +792,9 @@ def export_sensitivity_tables(all_results, tissue, out_dir=PLOT_DIR,
     )
     region_path = f'{out_dir}/susceptible_regions_{tissue}.csv'
     region_df.to_csv(region_path, index=False)
-    print(f"[{tissue}] 敏感基因表: {gene_path}")
-    print(f"[{tissue}] 敏感LR表: {lr_path}")
-    print(f"[{tissue}] 易感脑区表: {region_path}")
+    print(f"[{tissue}] Sensitive-gene table: {gene_path}")
+    print(f"[{tissue}] Sensitive LR table: {lr_path}")
+    print(f"[{tissue}] Susceptible-region table: {region_path}")
     return weights, region_df
 
 
@@ -806,7 +806,7 @@ def _normalize_sample_key(x):
 
 
 def get_default_chip_metadata():
-    """根据用户提供的芯片/样本表构建默认metadata，可再用外部CSV覆盖。"""
+    """Build default metadata from the user-provided chip/sample table; an external CSV can override it."""
     clinical = [
         ('AD1', 'AD', 'M', 73, 570, 8.30, 7.65, 'V',   5),
         ('AD2', 'AD', 'F', 84, 140, 6.55, 8.50, 'IV',  4),
@@ -933,7 +933,7 @@ def get_default_chip_metadata():
 
 def merge_chip_metadata(df, metadata=None, metadata_path=None,
                         sample_col='sample_id'):
-    """给预测表/latent metadata按芯片名或sample_id合并临床信息。"""
+    """Merge clinical metadata into prediction tables or latent metadata by chip name or sample_id."""
     out = df.copy()
     if metadata_path is not None and Path(metadata_path).exists():
         meta = pd.read_csv(metadata_path)
@@ -967,7 +967,7 @@ def merge_chip_metadata(df, metadata=None, metadata_path=None,
 
 def save_prediction_tables_with_metadata(plot_dir=PLOT_DIR,
                                          metadata_path=None):
-    """将已保存预测表和NVU预测表合并临床metadata后另存。"""
+    """Merge saved sample-level and NVU-level prediction tables with clinical metadata and save copies."""
     meta = get_default_chip_metadata()
     outputs = {}
     for kind in ['gnn_pred', 'nvu_pred', 'nvu_latent']:
@@ -983,13 +983,13 @@ def save_prediction_tables_with_metadata(plot_dir=PLOT_DIR,
             out_path = path.with_name(path.stem + '_with_metadata.csv')
             df.to_csv(out_path, index=False)
             outputs[f'{kind}_{tissue}'] = str(out_path)
-            print(f"metadata合并表已保存: {out_path}")
+            print(f"Metadata-merged table saved: {out_path}")
     return outputs
 
 
 def filter_all_results(all_results, exclude_sample_ids=None,
                        include_tissues=None, min_nvu=None, max_nvu=None):
-    """按QC规则过滤样本。用于报告 full cohort / QC-filtered cohort。"""
+    """Filter samples according to QC rules for full-cohort and QC-filtered cohort reporting."""
     exclude_sample_ids = set(exclude_sample_ids or [])
     include_tissues = set(include_tissues) if include_tissues else None
     kept, removed = [], []
@@ -1015,7 +1015,7 @@ def filter_all_results(all_results, exclude_sample_ids=None,
                 'reason': reason,
             })
     removed_df = pd.DataFrame(removed)
-    print(f"QC过滤: 保留={len(kept)}, 排除={len(removed)}")
+    print(f"QC filtering: kept={len(kept)}, excluded={len(removed)}")
     if len(removed_df):
         print(removed_df)
     return kept, removed_df
@@ -1024,7 +1024,7 @@ def filter_all_results(all_results, exclude_sample_ids=None,
 def build_sample_feature_table(all_results, top_genes_by_tissue=None,
                                top_lrs_by_tissue=None, top_n=50,
                                include_regions=True):
-    """构建样本级特征表，用于UMAP/PCA展示。"""
+    """Build a sample-level feature table for UMAP/PCA visualization."""
     records = []
     region_list = sorted(set(reg for r in all_results for reg in r['nvu_regions']))
     for r in all_results:
@@ -1081,8 +1081,8 @@ def build_sample_feature_table(all_results, top_genes_by_tissue=None,
 def plot_classification_umap(all_results, hip_weights=None, ctx_weights=None,
                              out_path=None, top_n=50, random_state=42):
     """
-    UMAP展示分类任务：颜色=AD/Control，形状=hip/ctx。
-    如果服务器未安装 umap-learn，自动退回 PCA。
+    Visualize the classification task with UMAP: color = AD/Control and shape = hip/ctx.
+    If umap-learn is not installed, automatically fall back to PCA.
     """
     top_genes, top_lrs = {}, {}
     if hip_weights is not None:
@@ -1142,12 +1142,12 @@ def plot_classification_umap(all_results, hip_weights=None, ctx_weights=None,
     fig.savefig(out_path, dpi=300, bbox_inches='tight')
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     df.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
-    print(f"分类UMAP已保存: {out_path}")
+    print(f"Classification UMAP saved: {out_path}")
     return df
 
 
 def plot_auc_summary(pred_files, out_path=None):
-    """统一绘制海马/皮层ROC曲线和AUC柱状摘要。"""
+    """Plot hippocampus/cortex ROC curves and AUC bar summaries in a consistent style."""
     set_publication_plot_style()
     import matplotlib.pyplot as plt
     fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.6))
@@ -1190,7 +1190,7 @@ def plot_auc_summary(pred_files, out_path=None):
     fig.savefig(out_path, dpi=300, bbox_inches='tight')
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     auc_df.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
-    print(f"AUC汇总图已保存: {out_path}")
+    print(f"AUC summary figure saved: {out_path}")
     return auc_df
 
 
@@ -1220,8 +1220,8 @@ def _bootstrap_auc_ci(y, p, n_boot=2000, ci=95, seed=42):
 def plot_combined_region_auc_summary(pred_files=None, out_path=None,
                                      n_boot=2000, seed=42):
     """
-    绘制HIP、CTX以及HIP+CTX合并的ROC和AUC柱状图。
-    柱状图误差棒为bootstrap 95% CI。
+    Plot ROC curves and AUC bars for HIP, CTX, and combined HIP+CTX.
+    Bar-plot error bars show bootstrap 95% CIs.
     """
     pred_files = pred_files or {
         'HIP': f'{PLOT_DIR}/gnn_pred_hip.csv',
@@ -1253,7 +1253,7 @@ def plot_combined_region_auc_summary(pred_files=None, out_path=None,
         })
 
     if not frames:
-        raise FileNotFoundError('没有找到可用的 gnn_pred_*.csv')
+        raise FileNotFoundError('No usable gnn_pred_*.csv files found')
 
     combined = pd.concat(frames, ignore_index=True)
     y = combined['label'].astype(int).values
@@ -1341,8 +1341,8 @@ def plot_combined_region_auc_summary(pred_files=None, out_path=None,
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     auc_df.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
     combined.to_csv(str(out_path).replace('.pdf', '_predictions.csv'), index=False)
-    print(f"合并AUC图已保存: {out_path}")
-    print(f"AUC表已保存: {str(out_path).replace('.pdf', '.csv')}")
+    print(f"Combined AUC figure saved: {out_path}")
+    print(f"AUC table saved: {str(out_path).replace('.pdf', '.csv')}")
     return auc_df
 
 
@@ -1355,15 +1355,15 @@ def plot_risk_embedding_from_csv(pred_hip_path=None, pred_ctx_path=None,
                                  nvu_hip_path=None, nvu_ctx_path=None,
                                  out_path=None):
     """
-    模型风险空间展示分类任务。
+    Visualize the classification task in model risk space.
 
-    横轴: sample-level AD logit score
-    纵轴: mean NVU-level AD logit score
-    颜色: AD/Control
-    形状: hip/ctx
+    x-axis: sample-level AD logit score
+    y-axis: mean NVU-level AD logit score
+    color: AD/Control
+    shape: hip/ctx
 
-    相比PCA/UMAP，这张图直接展示模型学习到的疾病风险空间，
-    更适合放在分类结果面板中。
+    Compared with PCA/UMAP, this plot directly shows the disease-risk space learned by the model,
+    making it better suited for the classification-results panel.
     """
     pred_hip_path = pred_hip_path or f'{PLOT_DIR}/gnn_pred_hip.csv'
     pred_ctx_path = pred_ctx_path or f'{PLOT_DIR}/gnn_pred_ctx.csv'
@@ -1378,7 +1378,7 @@ def plot_risk_embedding_from_csv(pred_hip_path=None, pred_ctx_path=None,
             df['tissue'] = tissue
             pred_frames.append(df)
     if not pred_frames:
-        raise FileNotFoundError('未找到 gnn_pred_hip.csv / gnn_pred_ctx.csv')
+        raise FileNotFoundError('gnn_pred_hip.csv / gnn_pred_ctx.csv not found')
     pred = pd.concat(pred_frames, ignore_index=True)
 
     nvu_frames = []
@@ -1388,7 +1388,7 @@ def plot_risk_embedding_from_csv(pred_hip_path=None, pred_ctx_path=None,
             df['tissue'] = tissue
             nvu_frames.append(df)
     if not nvu_frames:
-        raise FileNotFoundError('未找到 nvu_pred_hip.csv / nvu_pred_ctx.csv')
+        raise FileNotFoundError('nvu_pred_hip.csv / nvu_pred_ctx.csv not found')
     nvu = pd.concat(nvu_frames, ignore_index=True)
 
     nvu['nvu_logit'] = np.log(
@@ -1443,13 +1443,13 @@ def plot_risk_embedding_from_csv(pred_hip_path=None, pred_ctx_path=None,
     fig.savefig(out_path, dpi=300, bbox_inches='tight')
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     plot_df.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
-    print(f"模型风险空间图已保存: {out_path}")
+    print(f"Model risk-space figure saved: {out_path}")
     return plot_df
 
 
 def plot_tissue_split_prediction_strip(pred_hip_path=None, pred_ctx_path=None,
                                        out_path=None):
-    """按组织分面展示样本AD预测概率，适合补充PCA/UMAP区分度不足的问题。"""
+    """Show sample AD predicted probabilities by tissue, useful when PCA/UMAP separation is weak."""
     pred_hip_path = pred_hip_path or f'{PLOT_DIR}/gnn_pred_hip.csv'
     pred_ctx_path = pred_ctx_path or f'{PLOT_DIR}/gnn_pred_ctx.csv'
     out_path = out_path or f'{PLOT_DIR}/prediction_score_strip_hip_ctx.pdf'
@@ -1462,7 +1462,7 @@ def plot_tissue_split_prediction_strip(pred_hip_path=None, pred_ctx_path=None,
             df['group'] = np.where(df['label'].astype(int) == 1, 'AD', 'Control')
             frames.append(df)
     if not frames:
-        raise FileNotFoundError('未找到预测表')
+        raise FileNotFoundError('Prediction table not found')
     df = pd.concat(frames, ignore_index=True)
 
     set_publication_plot_style()
@@ -1500,13 +1500,13 @@ def plot_tissue_split_prediction_strip(pred_hip_path=None, pred_ctx_path=None,
     fig.savefig(out_path, dpi=300, bbox_inches='tight')
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     df.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
-    print(f"预测概率分布图已保存: {out_path}")
+    print(f"Predicted-probability distribution figure saved: {out_path}")
     return df
 
 
 def aggregate_nvu_latent_to_sample(latent_paths=None, meta_paths=None,
                                    metadata_path=None):
-    """读取NVU latent并聚合为样本级特征，供样本分类PCA/UMAP使用。"""
+    """Read NVU latent vectors and aggregate them into sample-level features for PCA/UMAP classification views."""
     latent_paths = latent_paths or {
         'hip': f'{GNN_DIR}/nvu_latent_hip.npy',
         'ctx': f'{GNN_DIR}/nvu_latent_ctx.npy',
@@ -1547,7 +1547,7 @@ def aggregate_nvu_latent_to_sample(latent_paths=None, meta_paths=None,
 def plot_sample_latent_embedding_from_saved(latent_paths=None, meta_paths=None,
                                             metadata_path=None, out_prefix=None,
                                             method='pca', color_fields=None):
-    """用NVU latent聚合后的样本级表示画分类和metadata多面板图。"""
+    """Use sample-level representations aggregated from NVU latents to plot classification and metadata panels."""
     sample_df = aggregate_nvu_latent_to_sample(
         latent_paths=latent_paths,
         meta_paths=meta_paths,
@@ -1663,15 +1663,15 @@ def plot_sample_latent_embedding_from_saved(latent_paths=None, meta_paths=None,
     fig_path = f'{out_prefix}_metadata_panels.pdf'
     fig.savefig(fig_path, dpi=300, bbox_inches='tight')
     sample_df.to_csv(f'{out_prefix}_metadata_embedding.csv', index=False)
-    print(f"样本latent metadata多面板图已保存: {fig_path}")
-    print(f"样本latent embedding表已保存: {out_prefix}_metadata_embedding.csv")
+    print(f"Sample latent metadata panel saved: {fig_path}")
+    print(f"Sample latent embedding table saved: {out_prefix}_metadata_embedding.csv")
     return sample_df
 
 
 def plot_nvu_latent_embedding_from_saved(latent_paths=None, meta_paths=None,
                                          metadata_path=None, out_path=None,
                                          method='pca'):
-    """NVU级latent PCA/UMAP，不下采样。每个点=一个NVU。"""
+    """NVU-level latent PCA/UMAP without downsampling; each point is one NVU."""
     latent_paths = latent_paths or {
         'hip': f'{GNN_DIR}/nvu_latent_hip.npy',
         'ctx': f'{GNN_DIR}/nvu_latent_ctx.npy',
@@ -1739,7 +1739,7 @@ def plot_nvu_latent_embedding_from_saved(latent_paths=None, meta_paths=None,
     fig.savefig(out_path, dpi=300, bbox_inches='tight')
     fig.savefig(str(out_path).replace('.pdf', '.svg'), bbox_inches='tight')
     meta.to_csv(str(out_path).replace('.pdf', '.csv'), index=False)
-    print(f"NVU latent图已保存: {out_path}")
+    print(f"NVU latent figure saved: {out_path}")
     return meta
 
 
@@ -1763,12 +1763,12 @@ def plot_sensitivity_analysis_panels(plot_dir=PLOT_DIR, out_prefix=None,
                                      top_n_genes=20, top_n_lr=20,
                                      top_n_regions=12):
     """
-    画最终敏感性分析图:
-      1) 敏感基因: 海马/皮层对比
-      2) 敏感受配体对: 海马/皮层对比
-      3) 易感脑区: susceptibility_score × NVU数量，海马/皮层对比
+    Plot the final sensitivity-analysis figure:
+      1) sensitive genes: hippocampus/cortex comparison
+      2) sensitive ligand-receptor pairs: hippocampus/cortex comparison
+      3) susceptible regions: susceptibility_score x NVU count, hippocampus/cortex comparison
 
-    同时保存用于排版的CSV。
+    Also save CSV files for figure layout.
     """
     set_publication_plot_style()
     plot_dir = Path(plot_dir)
@@ -1916,13 +1916,13 @@ def plot_sensitivity_analysis_panels(plot_dir=PLOT_DIR, out_prefix=None,
     gene_plot.to_csv(f'{out_prefix}_genes_plot.csv', index=False)
     lr_plot.to_csv(f'{out_prefix}_lr_pairs_plot.csv', index=False)
     region_plot.to_csv(f'{out_prefix}_regions_plot.csv', index=False)
-    print(f"敏感性分析PDF已保存: {pdf_path}")
-    print(f"敏感性分析SVG已保存: {svg_path}")
+    print(f"Sensitivity-analysis PDF saved: {pdf_path}")
+    print(f"Sensitivity-analysis SVG saved: {svg_path}")
     return gene_plot, lr_plot, region_plot
 
 
 def _infer_gene_category_lookup(tissue, gene_map=None):
-    """给敏感基因补充模块/类别标签；优先用传入gene_map，其次读默认模块文件。"""
+    """Add module/category labels to sensitive genes; prefer the provided gene_map, otherwise read the default module file."""
     if gene_map is not None and len(gene_map):
         gm = gene_map.copy()
     else:
@@ -1979,22 +1979,21 @@ def plot_model_factor_importance(plot_dir=PLOT_DIR, out_prefix=None,
                                  post_normalize_power=0.5,
                                  fixed_point_size=72):
     """
-    汇总不同信息来源对模型/分类任务的贡献强度。
+    Summarize the contribution strength of different information sources to the model/classification task.
 
-    这是解释性重要性图，不重新训练模型：
-      - Model gene: sensitive_genes_*.csv 的绝对rank_score
-      - ligand-receptor: 只使用LR __max，汇总为总体LR强度
-      - region/NVU structure: susceptible_regions_*.csv 的
-        susceptibility_score × n_nvu
-      - cell composition / density: 如果传入all_results，则额外从scalar
-        中计算ratio__、dist_mean、n_cells的AD/Control敏感性
+    This is an explanatory importance plot and does not retrain the model:
+      - Model gene: sensitive_genes_*.csv absolute rank_score from
+      - ligand-receptor: use only LR __max and aggregate it as overall LR intensity
+      - region/NVU structure: susceptibility_score x n_nvu from susceptible_regions_*.csv
+      - cell composition / density: if all_results is provided, additionally compute AD/Control sensitivity from scalar
+        features ratio__, dist_mean, and n_cells
 
-    importance_raw保留原始强度；importance_transformed用于绘图/归一化。
-    默认用log1p压缩尺度，避免NVU数量项把基因/LR压到接近0。
-    如果希望更温和压缩，可设 importance_transform='sqrt'。
-    post_normalize_power默认0.5，即对归一化后的重要性再开方，
-    用于减少最终图中的视觉差异；设为1.0则不做二次压缩。
-    fixed_point_size控制点大小。默认固定大小，避免把n_features误读为重要性。
+    importance_raw stores raw strength; importance_transformed is used for plotting/normalization.
+    By default, log1p compresses the scale so NVU-count terms do not push gene/LR terms close to 0.
+    Use importance_transform='sqrt' for milder compression.
+    post_normalize_power defaults to 0.5, applying a square-root transform after normalization,
+    which reduces visual differences in the final plot; set it to 1.0 to disable the second compression.
+    fixed_point_size controls point size. The default fixed size avoids misreading n_features as importance.
     """
     set_publication_plot_style()
     import matplotlib.pyplot as plt
@@ -2106,7 +2105,7 @@ def plot_model_factor_importance(plot_dir=PLOT_DIR, out_prefix=None,
 
     df = pd.DataFrame(records)
     if len(df) == 0:
-        raise ValueError('没有找到可用于因素重要性分析的CSV或all_results。')
+        raise ValueError('No CSV files or all_results are available for factor-importance analysis.')
 
     df['importance_transformed'] = _transform_factor_importance(
         df['importance_raw'].values,
@@ -2171,14 +2170,14 @@ def plot_model_factor_importance(plot_dir=PLOT_DIR, out_prefix=None,
     df.sort_values(['factor_class', 'factor_group', 'tissue']).to_csv(
         csv_path, index=False
     )
-    print(f"因素重要性图已保存: {pdf_path}")
-    print(f"因素重要性SVG已保存: {svg_path}")
-    print(f"因素重要性表已保存: {csv_path}")
+    print(f"Factor-importance figure saved: {pdf_path}")
+    print(f"Factor-importance SVG saved: {svg_path}")
+    print(f"Factor-importance table saved: {csv_path}")
     return df
 
 
 def _oriented_auc(y, score):
-    """返回方向校正后的AUC，保证>=0.5。"""
+    """Return direction-corrected AUC, constrained to be >= 0.5."""
     if len(np.unique(y)) < 2:
         return np.nan
     auc = roc_auc_score(y, score)
@@ -2186,7 +2185,7 @@ def _oriented_auc(y, score):
 
 
 def _loo_linear_auc(X, y):
-    """小样本sample-level用LOO估计PC空间线性可分性。"""
+    """Use LOO to estimate PC-space linear separability for small sample-level datasets."""
     y = np.asarray(y).astype(int)
     if len(np.unique(y)) < 2 or len(y) < 4:
         return np.nan
@@ -2210,8 +2209,8 @@ def _loo_linear_auc(X, y):
 
 def _group_holdout_linear_auc(X, y, groups):
     """
-    NVU-level用sample holdout评估PC空间线性可分性。
-    避免同一样本NVU同时出现在训练和测试造成过乐观。
+    Evaluate NVU-level PC-space linear separability with sample holdout.
+    Avoid overly optimistic results from putting NVUs from the same sample in both train and test sets.
     """
     y = np.asarray(y).astype(int)
     groups = np.asarray(groups)
@@ -2237,7 +2236,7 @@ def _group_holdout_linear_auc(X, y, groups):
 def quantify_pca_separation(X, meta, label_col='label',
                             group_col='sample_id', n_components=2,
                             level='sample'):
-    """定量PCA空间中AD/Control的区分度。"""
+    """Quantify AD/Control separability in PCA space."""
     y = meta[label_col].astype(int).values
     X_scaled = StandardScaler().fit_transform(X)
     pca = PCA(n_components=n_components, random_state=42)
@@ -2311,7 +2310,7 @@ def quantify_pca_separation(X, meta, label_col='label',
 
 def quantify_saved_latent_pca_separation(metadata_path=None,
                                          out_prefix=None):
-    """同时定量sample-level和NVU-level latent PCA区分度。"""
+    """Quantify both sample-level and NVU-level latent PCA separability."""
     sample_df = aggregate_nvu_latent_to_sample(metadata_path=metadata_path)
     sample_feature_cols = [
         c for c in sample_df.columns
@@ -2352,7 +2351,7 @@ def quantify_saved_latent_pca_separation(metadata_path=None,
     sample_emb.to_csv(f'{out_prefix}_sample_embedding.csv', index=False)
     nvu_emb.to_csv(f'{out_prefix}_nvu_embedding.csv', index=False)
     metrics.to_csv(f'{out_prefix}_metrics.csv', index=False)
-    print(f"PCA区分度指标已保存: {out_prefix}_metrics.csv")
+    print(f"PCA separability metrics saved: {out_prefix}_metrics.csv")
     return sample_emb, nvu_emb, metrics
 
 
@@ -2405,15 +2404,15 @@ def prepare_sample(result,
                    structure_input_scale=1.0,
                    seed=42):
     """
-    result → 训练用dict
-    含NVU分层采样（max_nvu）和边稀疏化（max_edges_per_nvu）
+    result → training dictionary
+    includes stratified NVU sampling (max_nvu) and edge sparsification (max_edges_per_nvu)
     """
     coords = result['nvu_coords']
     n_nvu  = result['n_nvu']
     if n_nvu < 2:
         return None
 
-    # NVU分层采样
+    # Stratified NVU sampling
     if n_nvu > max_nvu:
         np.random.seed(seed)
         regions    = np.array(result['nvu_regions'])
@@ -2447,7 +2446,7 @@ def prepare_sample(result,
         regions = result['nvu_regions']
         scalar  = result['nvu_scalar_feats']
 
-    # 边稀疏化
+    # Edge sparsification
     graphs     = build_sparse_graph(graphs, max_edges_per_nvu)
     cell_batch = PyGBatch.from_data_list(graphs)
 
@@ -2504,7 +2503,7 @@ def prepare_sample(result,
             if name in lr_weights:
                 scalar[:, i] *= lr_weights[name]
 
-    # NVU间边
+    # Inter-NVU edges
     r_px  = sample_radius_um / pixel_size
     pairs = list(KDTree(coords).query_pairs(r_px))
     if pairs:
@@ -2535,11 +2534,11 @@ def prepare_sample(result,
 
 
 # ══════════════════════════════════════════════════════════════
-# 7. 训练函数
+# 7. Training functions
 # ══════════════════════════════════════════════════════════════
 def _train_one_fold(model, train_s, opt, sch, n_epochs, lambda_nvu,
                     gene_l1=1e-4, min_loss_threshold=None):
-    """单fold训练"""
+    """Train one fold."""
     model.train()
     t0 = time.time()
     for ep in range(n_epochs):
@@ -2573,7 +2572,7 @@ def _train_one_fold(model, train_s, opt, sch, n_epochs, lambda_nvu,
             min_loss_threshold is not None and
             avg_loss < min_loss_threshold
         ):
-            print(f"    早停 ep{ep+1} loss={avg_loss:.4f} "
+            print(f"    Early stop ep{ep+1} loss={avg_loss:.4f} "
                   f"< {min_loss_threshold}")
             break
         if (ep + 1) % 20 == 0:
@@ -2581,7 +2580,7 @@ def _train_one_fold(model, train_s, opt, sch, n_epochs, lambda_nvu,
             eta     = elapsed / (ep + 1) * (n_epochs - ep - 1)
             print(f"    ep{ep+1}/{n_epochs} "
                   f"loss={avg_loss:.4f} "
-                  f"{elapsed:.0f}s 剩余≈{eta:.0f}s")
+                  f"{elapsed:.0f}s remaining≈{eta:.0f}s")
 
 
 def train_gnn(all_results, tissue='hip',
@@ -2598,11 +2597,11 @@ def train_gnn(all_results, tissue='hip',
               lr_input_scale=1.0,
               structure_input_scale=1.0):
     """
-    海马用 GroupKFold(5折)
-    皮层用 LOSO（样本少）
+    Use GroupKFold with 5 folds for hippocampus
+    Use LOSO for cortex because the sample size is small
     """
     tissue_results = [r for r in all_results if r['tissue'] == tissue]
-    print(f"\n[{tissue.upper()}] 准备样本 "
+    print(f"\n[{tissue.upper()}] Preparing samples "
           f"(max_nvu={max_nvu}, max_edges={max_edges_per_nvu})...")
 
     if feature_weights == 'auto':
@@ -2610,13 +2609,13 @@ def train_gnn(all_results, tissue='hip',
         groups = np.arange(len(tissue_results))
         use_loso = (len(tissue_results) <= 12)
         if use_loso:
-            print("使用 LOSO 验证，fold内自动计算敏感权重")
+            print("Using LOSO validation with fold-specific sensitivity weights")
             iterator = [(
                 [j for j in range(len(tissue_results)) if j != i],
                 [i]
             ) for i in range(len(tissue_results))]
         else:
-            print(f"使用 {n_folds}-fold GroupKFold 验证，fold内自动计算敏感权重")
+            print(f"Using {n_folds}-fold GroupKFold validation with fold-specific sensitivity weights")
             gkf = GroupKFold(n_splits=n_folds)
             iterator = list(gkf.split(groups, labels_np, groups))
 
@@ -2668,9 +2667,9 @@ def train_gnn(all_results, tissue='hip',
             scalar_dim = int(scalar_mask.sum())
             gene_dim = train_s[0]['node_gene_dim']
             if fold_i == 0:
-                print(f"节点特征模式={node_feature_mode}, "
-                      f"保留scalar={scalar_mask.sum()}, "
-                      f"去掉密度scalar={(~scalar_mask).sum()}")
+                print(f"node feature mode={node_feature_mode}, "
+                      f"kept scalar features={scalar_mask.sum()}, "
+                      f"removed density scalar features={(~scalar_mask).sum()}")
                 print(f"cell_dim={cell_dim}, gene_dim={gene_dim}, "
                       f"scalar_dim={scalar_dim}")
 
@@ -2765,8 +2764,8 @@ def train_gnn(all_results, tissue='hip',
         pd.DataFrame(nvu_pred_records).to_csv(
             f'{PLOT_DIR}/nvu_pred_{tissue}.csv', index=False
         )
-        print(f"预测结果已保存: {PLOT_DIR}/gnn_pred_{tissue}.csv")
-        print(f"NVU级预测已保存: {PLOT_DIR}/nvu_pred_{tissue}.csv")
+        print(f"Predictions saved: {PLOT_DIR}/gnn_pred_{tissue}.csv")
+        print(f"NVU-level predictions saved: {PLOT_DIR}/nvu_pred_{tissue}.csv")
 
         final_weights = build_feature_weights(
             tissue_results, tissue,
@@ -2802,9 +2801,9 @@ def train_gnn(all_results, tissue='hip',
 
     ad_n   = sum(s['label'].item() == 1 for s in samples)
     ctrl_n = sum(s['label'].item() == 0 for s in samples)
-    print(f"有效样本={len(samples)} (AD={ad_n}, Ctrl={ctrl_n})")
+    print(f"Valid samples={len(samples)} (AD={ad_n}, Ctrl={ctrl_n})")
     if not samples:
-        raise ValueError(f"[{tissue}] 没有可训练样本")
+        raise ValueError(f"[{tissue}] has no trainable samples")
 
     scalar_mask = make_scalar_mask(
         samples[0]['scalar_names'],
@@ -2812,8 +2811,8 @@ def train_gnn(all_results, tissue='hip',
     )
     kept_scalar_names = np.array(samples[0]['scalar_names'])[scalar_mask]
     dropped_n = int((~scalar_mask).sum())
-    print(f"节点特征模式={node_feature_mode}, "
-          f"保留scalar={scalar_mask.sum()}, 去掉密度scalar={dropped_n}")
+    print(f"node feature mode={node_feature_mode}, "
+          f"kept scalar features={scalar_mask.sum()}, removed density scalar features={dropped_n}")
 
     cell_dim   = samples[0]['cell_batch'].x.shape[1]
     scalar_dim = int(scalar_mask.sum())
@@ -2823,19 +2822,19 @@ def train_gnn(all_results, tissue='hip',
     groups    = np.arange(len(samples))
     labels_np = np.array([s['label'].item() for s in samples])
 
-    # 根据样本量选择验证策略
+    # Choose the validation strategy based on sample size
     use_loso = (len(samples) <= 12)
     fold_aucs, all_preds, all_trues, all_ids = [], [], [], []
     nvu_pred_records = []
 
     if use_loso:
-        print("使用 LOSO 验证")
+        print("Using LOSO validation")
         iterator = [(
             [j for j in range(len(samples)) if j != i],
             [i]
         ) for i in range(len(samples))]
     else:
-        print(f"使用 {n_folds}-fold GroupKFold 验证")
+        print(f"Using {n_folds}-fold GroupKFold validation")
         gkf      = GroupKFold(n_splits=n_folds)
         iterator = list(gkf.split(groups, labels_np, groups))
 
@@ -2915,7 +2914,7 @@ def train_gnn(all_results, tissue='hip',
             torch.cuda.empty_cache()
         gc.collect()
 
-    # 总体结果
+    # Overall results
     overall_auc = roc_auc_score(all_trues, all_preds)
     mean_auc    = np.mean(fold_aucs) if fold_aucs else 0.0
     std_auc     = np.std(fold_aucs)  if fold_aucs else 0.0
@@ -2924,7 +2923,7 @@ def train_gnn(all_results, tissue='hip',
     print(f"[{tissue.upper()}] Overall AUC = {overall_auc:.4f}")
     print(f"[{tissue.upper()}] Fold AUC    = {mean_auc:.4f} ± {std_auc:.4f}")
 
-    # 保存预测结果
+    # Save predictions
     df_pred = pd.DataFrame({
         'sample_id': all_ids,
         'label':     all_trues,
@@ -2934,12 +2933,12 @@ def train_gnn(all_results, tissue='hip',
         'tissue':    tissue,
     })
     df_pred.to_csv(f'{PLOT_DIR}/gnn_pred_{tissue}.csv', index=False)
-    print(f"预测结果已保存: {PLOT_DIR}/gnn_pred_{tissue}.csv")
+    print(f"Predictions saved: {PLOT_DIR}/gnn_pred_{tissue}.csv")
 
     df_nvu_pred = pd.DataFrame(nvu_pred_records)
     nvu_pred_path = f'{PLOT_DIR}/nvu_pred_{tissue}.csv'
     df_nvu_pred.to_csv(nvu_pred_path, index=False)
-    print(f"NVU级预测已保存: {nvu_pred_path}")
+    print(f"NVU-level predictions saved: {nvu_pred_path}")
 
     pd.Series(kept_scalar_names).to_csv(
         f'{PLOT_DIR}/gnn_scalar_used_{tissue}.csv',
@@ -2950,12 +2949,12 @@ def train_gnn(all_results, tissue='hip',
 
 
 # ══════════════════════════════════════════════════════════════
-# 8. NVU表征提取（用于下游脑区分类）
+# 8. NVU representation extraction for downstream region classification
 # ══════════════════════════════════════════════════════════════
 def extract_nvu_representations(model, samples):
     """
-    提取NVU级表征，用于下游脑区分类任务
-    返回: repr矩阵 + 元信息
+    Extract NVU-level representations for downstream region classification.
+    Return: representation matrix plus metadata.
     """
     model.eval()
     all_repr, all_regions, all_labels, all_samples = [], [], [], []
@@ -2990,12 +2989,12 @@ def export_nvu_latent_representations(model, samples, tissue='hip',
                                       prefix='nvu_latent',
                                       save_cell_repr=False):
     """
-    导出模型中间层NVU表示，用于PCA/UMAP。
+    Export intermediate NVU representations for PCA/UMAP.
 
-    输出:
-      {prefix}_{tissue}.npy      : NVU sample-level graph latent, 即二级GNN节点表示
-      {prefix}_{tissue}_meta.csv : 每个NVU对应的样本/脑区/标签/预测概率
-      可选 {prefix}_{tissue}_cellrepr.npy : 一级CellGNN输出的NVU表示
+    Outputs:
+      {prefix}_{tissue}.npy      : NVU sample-level graph latent, the level-2 GNN node representation
+      {prefix}_{tissue}_meta.csv : sample, region, label, and predicted probability for each NVU
+      optional {prefix}_{tissue}_cellrepr.npy : NVU representation output by the level-1 CellGNN
     """
     model.eval()
     device = next(model.parameters()).device
@@ -3044,8 +3043,8 @@ def export_nvu_latent_representations(model, samples, tissue='hip',
     np.save(latent_path, latent)
     meta.to_csv(meta_path, index=False)
 
-    print(f"NVU latent已保存: {latent_path}")
-    print(f"NVU latent metadata已保存: {meta_path}")
+    print(f"NVU latent saved: {latent_path}")
+    print(f"NVU latent metadata saved: {meta_path}")
 
     outputs = {
         'latent': latent,
@@ -3057,7 +3056,7 @@ def export_nvu_latent_representations(model, samples, tissue='hip',
         cell_repr = np.vstack(cell_repr_list)
         cell_repr_path = out_dir / f'{prefix}_{tissue}_cellrepr.npy'
         np.save(cell_repr_path, cell_repr)
-        print(f"CellGNN NVU表示已保存: {cell_repr_path}")
+        print(f"CellGNN NVU representation saved: {cell_repr_path}")
         outputs['cell_repr'] = cell_repr
         outputs['cell_repr_path'] = str(cell_repr_path)
 
@@ -3065,7 +3064,7 @@ def export_nvu_latent_representations(model, samples, tissue='hip',
 
 
 def train_region_classifier(nvu_data, tissue='hip'):
-    """用NVU表征训练脑区分类器"""
+    """Train a region classifier using NVU representations."""
     from sklearn.ensemble import RandomForestClassifier
 
     X      = nvu_data['repr']
@@ -3086,20 +3085,20 @@ def train_region_classifier(nvu_data, tissue='hip'):
         all_true.extend(y[te_idx])
         all_pred.extend(clf.predict(X[te_idx]))
 
-    print(f"\n[{tissue.upper()}] 脑区分类报告:")
+    print(f"\n[{tissue.upper()}] Region-classification report:")
     print(classification_report(all_true, all_pred,
                                  target_names=le.classes_))
     return clf, le
 
 
 # ══════════════════════════════════════════════════════════════
-# 9. 全量模型训练（用于特征提取）
+# 9. Full-data model training for feature extraction
 # ══════════════════════════════════════════════════════════════
 def train_full_model(samples, tissue='hip',
                      n_epochs=150, lambda_nvu=0.3,
                      use_density_scalar=False,
                      gene_l1=1e-4):
-    """全量数据训练一个模型，用于NVU表征提取"""
+    """Train one model on all available data for NVU representation extraction."""
     cell_dim   = samples[0]['cell_batch'].x.shape[1]
     scalar_mask = make_scalar_mask(
         samples[0]['scalar_names'],
@@ -3118,19 +3117,19 @@ def train_full_model(samples, tissue='hip',
     opt   = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-2)
     sch   = CosineAnnealingLR(opt, T_max=n_epochs, eta_min=1e-5)
 
-    print(f"\n[{tissue.upper()}] 全量模型训练 ({n_epochs} epochs)...")
+    print(f"\n[{tissue.upper()}] Full-data model training ({n_epochs} epochs)...")
     _train_one_fold(model, samples_scaled, opt, sch, n_epochs,
                     lambda_nvu, gene_l1)
 
     torch.save(model.state_dict(),
                f'{GNN_DIR}/model_{tissue}_full.pt')
-    print(f"模型已保存: {GNN_DIR}/model_{tissue}_full.pt")
+    print(f"Model saved: {GNN_DIR}/model_{tissue}_full.pt")
 
     gene_imp = model.cell_gnn.gene_importance(samples[0]['gene_names'])
     if gene_imp is not None:
         out_csv = f'{PLOT_DIR}/gene_weight_{tissue}.csv'
         gene_imp.to_csv(out_csv, index=False)
-        print(f"基因权重已保存: {out_csv}")
+        print(f"Gene weights saved: {out_csv}")
 
     return_samples = [
         transform_sample_scalar(s, scaler, scalar_mask)
@@ -3142,11 +3141,11 @@ def train_full_model(samples, tissue='hip',
 
 
 # ══════════════════════════════════════════════════════════════
-# 10. 主流程
+# 10. Main workflow
 # ══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
 
-    # ── 读取基因列表 ─────────────────────────────────────────
+    # ── Read gene lists ─────────────────────────────────────────
     modulegens_hip    = pd.read_csv(
         GNN_DIR / 'NVU.Module.csv'
     )
@@ -3164,7 +3163,7 @@ if __name__ == '__main__':
         modulegens_hip, modulegens_cortex, Abetagenes, 'ctx'
     )
 
-    # ── 读取LR数据 ───────────────────────────────────────────
+    # ── Read LR data ───────────────────────────────────────────
     lr_hip = pd.read_csv(
         GNN_DIR / 'Hip_all_Stereosite.csv'
     )
@@ -3173,9 +3172,9 @@ if __name__ == '__main__':
     )
     lr_ctx = lr_ctx[~lr_ctx['sample'].isin(CTX_EXCLUDE)].copy()
 
-    print("海马LR:")
+    print("Hippocampus LR:")
     TOP_LR_HIP = select_top_lr_pairs(lr_hip)
-    print("皮层LR:")
+    print("Cortex LR:")
     TOP_LR_CTX = select_top_lr_pairs(lr_ctx)
 
     lr_feat_hip = build_lr_feature_matrix(lr_hip, TOP_LR_HIP)
@@ -3193,17 +3192,17 @@ if __name__ == '__main__':
         gene_map_ctx, CELLTYPE_ORDER, LR_NAMES_CTX
     )
 
-    # ── 生成/读取 all_results ────────────────────────────────
+    # ── Generate/read all_results ────────────────────────────────
     pkl_path = f'{GNN_DIR}/all_results_v2.pkl'
     if Path(pkl_path).exists():
-        print(f"\n读取已有数据: {pkl_path}")
+        print(f"\nReading cached data: {pkl_path}")
         with open(pkl_path, 'rb') as f:
             all_results = pickle.load(f)
         if not all(
             'node_gene_names' in r and 'node_lr_names' in r
             for r in all_results
         ):
-            print("检测到旧版缓存缺少节点基因/LR列信息，重新生成 all_results...")
+            print("Detected an old cache without node gene/LR column metadata; regenerating all_results...")
             all_results = generate_all_results(
                 gene_map_hip, gene_map_ctx,
                 SCALAR_NAMES_HIP, SCALAR_NAMES_CTX,
@@ -3222,11 +3221,11 @@ if __name__ == '__main__':
 
     hip = [r for r in all_results if r['tissue'] == 'hip']
     ctx = [r for r in all_results if r['tissue'] == 'ctx']
-    print(f"\n数据概览: 海马={len(hip)}, 皮层={len(ctx)}")
+    print(f"\nData overview: hippocampus={len(hip)}, cortex={len(ctx)}")
 
-    # ── GNN训练 ──────────────────────────────────────────────
+    # ── GNN training ──────────────────────────────────────────────
     print("\n" + "="*55)
-    print("开始训练 — 海马")
+    print("Start training - hippocampus")
     auc_hip_all, auc_hip_fold, folds_hip, hip_samples = train_gnn(
         all_results, tissue='hip',
         n_folds=5, n_epochs=100,
@@ -3236,7 +3235,7 @@ if __name__ == '__main__':
     )
 
     print("\n" + "="*55)
-    print("开始训练 — 皮层（LOSO）")
+    print("Start training - cortex（LOSO）")
     auc_ctx_all, auc_ctx_fold, folds_ctx, ctx_samples = train_gnn(
         all_results, tissue='ctx',
         n_folds=5, n_epochs=150,
@@ -3245,16 +3244,16 @@ if __name__ == '__main__':
         use_density_scalar=False
     )
 
-    # ── 汇总 ─────────────────────────────────────────────────
+    # ── Summary ─────────────────────────────────────────────────
     print("\n" + "="*55)
-    print("最终结果汇总")
-    print(f"  海马 Overall AUC = {auc_hip_all:.4f}")
-    print(f"  海马 Fold AUC    = {auc_hip_fold:.4f} ± {np.std(folds_hip):.4f}")
-    print(f"  皮层 Overall AUC = {auc_ctx_all:.4f}")
-    print(f"  皮层 Fold AUC    = {auc_ctx_fold:.4f} ± {np.std(folds_ctx):.4f}")
+    print("Final result summary")
+    print(f"  hippocampus Overall AUC = {auc_hip_all:.4f}")
+    print(f"  hippocampus Fold AUC    = {auc_hip_fold:.4f} ± {np.std(folds_hip):.4f}")
+    print(f"  cortex Overall AUC = {auc_ctx_all:.4f}")
+    print(f"  cortex Fold AUC    = {auc_ctx_fold:.4f} ± {np.std(folds_ctx):.4f}")
 
-    # ── 全量模型训练 + NVU表征提取 ──────────────────────────
-    print("\n训练全量模型用于NVU表征提取...")
+    # ── Full-data model training and NVU representation extraction ──────────────────────────
+    print("\nTraining full-data models for NVU representation extraction...")
     model_hip, hip_samples_scaled = train_full_model(
         hip_samples, tissue='hip', n_epochs=150,
         use_density_scalar=False
@@ -3264,7 +3263,7 @@ if __name__ == '__main__':
         use_density_scalar=False
     )
 
-    # 提取NVU表征
+    # Extract NVU representations
     nvu_data_hip = extract_nvu_representations(model_hip, hip_samples_scaled)
     nvu_data_ctx = extract_nvu_representations(model_ctx, ctx_samples_scaled)
 
@@ -3277,9 +3276,8 @@ if __name__ == '__main__':
             'sample': nvu_data['sample'],
         }).to_csv(f'{GNN_DIR}/nvu_meta_{tissue}.csv', index=False)
 
-    print(f"NVU表征已保存: {GNN_DIR}/nvu_repr_*.npy")
+    print(f"NVU representations saved: {GNN_DIR}/nvu_repr_*.npy")
 
-    # 脑区分类
+    # Region classification
     clf_hip, le_hip = train_region_classifier(nvu_data_hip, 'hip')
     clf_ctx, le_ctx = train_region_classifier(nvu_data_ctx, 'ctx')
-
