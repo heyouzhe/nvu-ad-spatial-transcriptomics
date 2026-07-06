@@ -775,7 +775,7 @@ class FictureVascularDeconv:
         self._log(f"   血管分数中位数: {results['Vascular_score'].median():.4f}")
         self._log(f"   血管分数标准差: {results['Vascular_score'].std():.4f}")
         
-        self._log(f"\n✅ 完成!")
+        self._log("\nDone.")
         
         return results, pixel_results
     
