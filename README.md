@@ -15,7 +15,7 @@ notebooks from another working directory.
 
 | Manuscript figure | Main analysis | Code |
 | --- | --- | --- |
-| Figure 1 | Vascular-centered digital NVU reconstruction and vascular-field visualization | `notebooks/figure1_nvu_reconstruction.ipynb`; `scripts/figure1_vascular_ficture.py` |
+| Figure 1 | Vascular-centered digital NVU reconstruction and vascular-field visualization | `notebooks/figure1_nvu_reconstruction.ipynb`; `scripts/figure1_vascular_ficture.py`; `docs/figures/figure1.png` |
 | Figure 2 | AD-associated digital NVU abundance and cellular composition changes | `notebooks/figure2_ad_nvu_abundance_composition.ipynb` |
 | Figure 3 | Hippocampal and cortical DEG, hdWGCNA, enrichment, and hub-gene network analyses | `notebooks/figure3_hippocampus_wgcna_up.ipynb`; `notebooks/figure3_hippocampus_wgcna_down.ipynb`; `notebooks/figure3_cortex_wgcna_up.ipynb`; `notebooks/figure3_cortex_wgcna_down.ipynb` |
 | Figure 4 | Stereosite ligand-receptor communication landscapes | `notebooks/figure4_hippocampus_stereosite_allpairs.ipynb`; `notebooks/figure4_cortex_stereosite_allpairs.ipynb` |
@@ -27,10 +27,15 @@ notebooks from another working directory.
 
 - `notebooks/`: cleaned figure notebooks with outputs cleared.
 - `scripts/`: reusable Python scripts used by the figure notebooks.
+- `docs/figures/`: manuscript figure assets included for quick reference.
 - `data/`: placeholder for processed inputs. Data files are ignored by Git.
 - `results/`: placeholder for generated figures and tables. Result files are ignored by Git.
 - `references/`: optional external resources, such as ligand-receptor databases.
 - `docs/`: manuscript and workflow notes.
+
+## Figure Assets
+
+![Figure 1 workflow schematic](docs/figures/figure1.png)
 
 ## Path Convention
 
