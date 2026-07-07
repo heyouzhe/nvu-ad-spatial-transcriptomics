@@ -1,15 +1,24 @@
 # NVU AD Spatial Transcriptomics
 
-Code repository for the manuscript analyses of neurovascular unit (NVU)
-remodeling in Alzheimer's disease using single-cell-resolution spatial
-transcriptomics.
+Neurovascular dysfunction, glial activation and synaptic failure are central
+features of Alzheimer's disease (AD), but how these processes are organized
+within local human tissue microenvironments remains unresolved. In this study,
+vascular-centered, communication-qualified digital neurovascular units (NVUs)
+were reconstructed from single-cell-resolution Stereo-seq profiles of the human
+hippocampus and prefrontal cortex, spanning 44 tissue sections from 28 donors.
+Digital NVUs were anchored to vascular cores and refined by local
+neuronal-astroglial context and ligand-receptor connectivity.
 
-The notebooks are organized by manuscript figure and curated for public
-release: outputs are cleared, exploratory scratch cells were removed, and each
-notebook retains analyses that directly support the corresponding manuscript
-figure panels. Local server paths were removed from the public code. Paths are
-repository-relative by default, and `NVU_PROJECT_ROOT` can be set when running
-notebooks from another working directory.
+AD-associated remodeling of digital NVUs was anatomically patterned rather than
+uniform. Hippocampal FAS, SLRM and CA1 showed increased digital NVU density,
+region-specific compositional shifts and vascular-immune-stress activation
+programs, whereas vulnerable prefrontal cortical NVUs in L456 and L23 were
+dominated by suppression of neuronal synaptic, translational and
+mitochondrial-energy-related programs. Aβ-proximal hippocampal NVU compartments
+marked local remodeling hotspots, and a disease-informed hierarchical graph
+neural network integrated cell-level, NVU-level and region-level features to
+resolve region-by-disease tissue states while preserving hippocampal-cortical
+structure.
 
 ![Figure 1 workflow schematic](docs/figures/figure1.png)
 
