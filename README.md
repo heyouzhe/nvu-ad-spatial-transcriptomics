@@ -11,7 +11,9 @@ figure panels. Local server paths were removed from the public code. Paths are
 repository-relative by default, and `NVU_PROJECT_ROOT` can be set when running
 notebooks from another working directory.
 
-## Figure Code Index
+![Figure 1 workflow schematic](docs/figures/figure1.png)
+
+## Figure Code
 
 | Manuscript figure | Main analysis | Code |
 | --- | --- | --- |
@@ -22,43 +24,3 @@ notebooks from another working directory.
 | Figure 5 | Disease-associated astrocyte and microglial state analyses | `notebooks/figure5_disease_associated_glia.ipynb` |
 | Figure 6 | Aβ-associated NVU remodeling, density, and gene-change analyses | `notebooks/figure6_abeta_nvu_gene_changes.ipynb`; `notebooks/figure6_abeta_nvu_integrated_changes.ipynb` |
 | Figure 7 | Multi-scale GNN vulnerability modeling and interpretation | `scripts/figure7_model.py` for the training workflow; `notebooks/figure7_gnn_vulnerability_modeling.ipynb` for figure-panel plotting |
-
-## Repository Layout
-
-- `notebooks/`: cleaned figure notebooks with outputs cleared.
-- `scripts/`: reusable Python scripts used by the figure notebooks.
-- `docs/figures/`: manuscript figure assets included for quick reference.
-- `data/`: placeholder for processed inputs. Data files are ignored by Git.
-- `results/`: placeholder for generated figures and tables. Result files are ignored by Git.
-- `references/`: optional external resources, such as ligand-receptor databases.
-- `docs/`: manuscript and workflow notes.
-
-## Figure Assets
-
-![Figure 1 workflow schematic](docs/figures/figure1.png)
-
-## Path Convention
-
-Run notebooks from the `notebooks/` directory, or set:
-
-```bash
-NVU_PROJECT_ROOT=/path/to/nvu-ad-spatial-transcriptomics
-```
-
-Figure 7 also supports direct overrides for large model inputs and outputs:
-`NVU_HIP_DIR`, `NVU_CTX_DIR`, `NVU_GNN_DIR`, and `NVU_PLOT_DIR`.
-
-## Curation Principles
-
-- Retained code should generate manuscript figure panels or the processed
-  tables needed by those panels.
-- Exploratory diagnostics, stale path checks, and personal notebook scratch
-  cells are excluded from the public notebooks.
-- Large data and generated result files are not tracked in Git.
-
-## Notes
-
-The repository intentionally tracks code and lightweight documentation only.
-Large `.rds`, `.h5ad`, `.csv`, model checkpoint, and figure output files should
-be placed locally under `data/` or `results/` following the relative paths used
-inside each notebook.
